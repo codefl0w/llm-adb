@@ -1,0 +1,101 @@
+name: Build llm-adb
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+      - 'V*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform_tag: Windows_x86_64
+            artifact_name: llmadb_Windows_x86_64
+            artifact_path: dist/llmadb_*_Windows_x86_64.exe
+          - os: windows-11-arm
+            platform_tag: Windows_arm64
+            artifact_name: llmadb_Windows_arm64
+            artifact_path: dist/llmadb_*_Windows_arm64.exe
+          - os: ubuntu-22.04
+            platform_tag: Linux_x86_64
+            artifact_name: llmadb_Linux_x86_64
+            artifact_path: dist/llmadb_*_Linux_x86_64
+          - os: ubuntu-24.04-arm
+            platform_tag: Linux_arm64
+            artifact_name: llmadb_Linux_arm64
+            artifact_path: dist/llmadb_*_Linux_arm64
+          - os: macos-latest
+            platform_tag: Darwin_arm64
+            artifact_name: llmadb_macOS_arm64
+            artifact_path: dist/llmadb_*_Darwin_arm64
+          - os: macos-15-intel
+            platform_tag: Darwin_x86_64
+            artifact_name: llmadb_macOS_x86_64
+            artifact_path: dist/llmadb_*_Darwin_x86_64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pyinstaller
+
+      - name: Build executable
+        shell: bash
+        run: |
+          VERSION=$(python -c "import llmadb; print(llmadb.__version__)")
+          BIN_NAME="llmadb_${VERSION}_${{ matrix.platform_tag }}"
+          pyinstaller --noconfirm --onefile --clean \
+            --name "${BIN_NAME}" \
+            --collect-submodules llmadb \
+            --collect-submodules PIL \
+            llmadb/__main__.py
+
+      - name: Smoke test executable
+        shell: bash
+        run: |
+          BIN=$(ls dist/llmadb_*_${{ matrix.platform_tag }}*)
+          chmod +x "${BIN}" || true
+          "./${BIN}" --version
+          "./${BIN}" --help-llm
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
+
+  release:
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/V')
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true

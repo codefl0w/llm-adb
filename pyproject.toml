@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-adb"
+version = "0.1.0"
+description = "llm-adb: Token-efficient ADB wrapper for LLM agents"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "pillow>=9.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[project.scripts]
+llmadb = "llmadb.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["llmadb*"]
