@@ -23,3 +23,9 @@ llmadb = "llmadb.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["llmadb*"]
+
+[project.urls]
+Homepage = "https://github.com/codefl0w/llm-adb"
+Repository = "https://github.com/codefl0w/llm-adb"
+Issues = "https://github.com/codefl0w/llm-adb/issues"
+Donate = "https://buymeacoffee.com/fl0w"
