@@ -114,13 +114,26 @@ When controlling an Android device with raw `adb`, LLM agents waste 30–60% of 
 
 ## Installation
 
-Requires **Python 3.9+** and `adb` on your system `PATH` (or set via the `LLMADB_ADB` environment variable).
+Requires `adb` on your system `PATH` (or set via the `LLMADB_ADB` environment variable).
+
+### From PyPI (Python 3.9+)
 
 ```bash
-# Install globally via pipx (recommended)
-pipx install .
+pip install llm-adb
 
-# Or install into your Python environment
+# Or install globally in an isolated environment via pipx
+pipx install llm-adb
+```
+
+### Standalone Binaries
+
+Prebuilt standalone executables (`llmadb`) for Windows (`x86_64`, `arm64`), Linux (`x86_64`, `arm64`), and macOS (`arm64`, `x86_64`) are available on the [Releases](https://github.com/codefl0w/llm-adb/releases) page - no Python runtime required.
+
+### From Source
+
+```bash
+git clone https://github.com/codefl0w/llm-adb.git
+cd llm-adb
 pip install .
 
 # Editable install with test dependencies
