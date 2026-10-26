@@ -56,7 +56,7 @@ When controlling an Android device with raw `adb`, LLM agents waste 30–60% of 
 
 ## How `llm-adb` Accelerates App Development & QA
 
-`llm-adb` turns any tool-using LLM (Claude Code, Gemini CLI, Cursor, Windsurf, or local coding agents) into an autonomous Android QA and debugging engineer:
+`llm-adb` turns any tool-using LLM (Claude Code, Codex, Antigravity CLI, Cursor, Windsurf / Devin, or local coding agents) into an autonomous Android QA and debugging engineer:
 
 1. **Automated UI & Feature Verification:**
    After building and installing an APK (`llmadb install -r app-debug.apk`), an agent can launch the app (`llmadb launch com.example.app`), navigate onboarding flows (`llmadb tap --text "Get Started"`), fill forms (`llmadb type "user@example.com" --clear --enter`), and test long-press context menus (`llmadb tap --text "Item" --hold`).
@@ -73,7 +73,7 @@ When controlling an Android device with raw `adb`, LLM agents waste 30–60% of 
 4. **Device Environment & Connectivity Auditing:**
    With `llmadb status` and `llmadb hardware`, agents instantly verify battery levels, Wi-Fi/Cellular connectivity, Bluetooth/NFC/Airplane states, DPI scaling, available RAM/storage, and SELinux/root status before running integration tests.
 5. **Cross-Generation Compatibility (Android 7 to Android 17):**
-   Tested across legacy OEM skins (Samsung Grace UX / Android 7.0), modern OEM skins (OnePlus OxygenOS 16 / Android 16), and stock AOSP (Google Pixel / Android 17), automatically handling edge-to-edge bottom navigation insets and OEM-specific window dumps.
+   Tested across legacy OEM skins (Samsung Experience / Grace UX (Android 7.0), modern OEM skins (OnePlus OxygenOS 16 / Android 16), and stock AOSP (Google Pixel / Android 17), automatically handling edge-to-edge bottom navigation insets and OEM-specific window dumps.
 
 ---
 
@@ -91,7 +91,7 @@ When controlling an Android device with raw `adb`, LLM agents waste 30–60% of 
 | **7-Stage Multi-App Flow (`TC-06`)**<br>*(Quick Settings -> Web Search -> APK Download & Install -> 20s Timer -> Dynamic Island Dismiss)* | **Gemini 3.8 Flash** | **FAILED** (`723.2s` T/O)<br>`364,506` uncached tokens<br>*(Mis-tapped link without grid; hung on Play Protect)* | **PASSED (7/7 stages)**<br>**`441.3s`**<br>**`254,405`** uncached tokens | **Passed vs. Failed**<br>**39.0% faster**<br>**30.2% fewer uncached tokens**<br>**65.3% fewer output tokens** |
 | **7-Stage Multi-App Flow (`TC-06`)** | **Claude Sonnet 5.5** | **PASSED** (`695.4s`)<br>`163,746` uncached tokens<br>*(2 failed `pm install` calls + mis-tap)* | **PASSED (7/7 stages)**<br>**`498.8s`**<br>**`109,023`** uncached tokens | **28.3% faster (`-3m 16s`)**<br>**33.4% fewer uncached tokens**<br>**34.8% fewer input tokens** |
 
-> Each cell is a single trial (`TC-02` was run 1–3 times per model and `TC-06` 1–2 times, against one Raw `adb` baseline run), so treat the percentages as indicative, not statistical. Every run, including the ones not shown here, is logged in [`AGENT_TESTS.md`](AGENT_TESTS.md).
+> Each cell is a single trial (`TC-02` was run 1–3 times per model and `TC-06` 1–2 times, against one Raw `adb` baseline run), so treat the percentages as indicative, not statistical. Every run, including the ones not shown here, is logged in [`AGENT_TESTS.md`](docs/AGENT_TESTS.md). Every test can be found at [`TEST_SUITE.md`](docs/TEST_SUITE.md)
 
 ### 2. Host CLI Execution Latency
 
@@ -344,3 +344,11 @@ pytest
 ## License
 
 See [LICENSE](LICENSE) for details.
+
+## Donate
+
+If my tools have been useful to you, please consider supporting their development via Buy Me a Coffee or GitHub Sponsors.
+
+<a href="https://buymeacoffee.com/fl0w" target="_blank" rel="noopener noreferrer">
+  <img width="350" alt="yellow-button" src="https://github.com/user-attachments/assets/2e6d44c8-9640-4cb3-bcc8-989595d6b7e9"/>
+</a>
