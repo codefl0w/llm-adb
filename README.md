@@ -13,6 +13,7 @@
   <img alt="Built for LLM agents" src="https://img.shields.io/badge/built%20for-LLM%20agents-FF8FF5?style=flat-square&labelColor=0f1620">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/codefl0w/llm-adb?style=flat-square&labelColor=0f1620&color=FF8FF5"></a>
   <a href="https://github.com/codefl0w/llm-adb/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/codefl0w/llm-adb?style=flat-square&labelColor=0f1620&color=FF8FF5"></a>
+ <img alt="Version" src="https://img.shields.io/github/v/tag/codefl0w/llm-adb?style=flat-square&include_prereleases&label=version&labelColor=0f1620&color=FF8FF5">
 </p>
 
 <p>
