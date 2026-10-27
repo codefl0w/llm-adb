@@ -52,6 +52,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Sync version from git tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          TAG_VER="${GITHUB_REF_NAME#[vV]}"
+          python -c "import pathlib, re; ver = '${TAG_VER}'; [pathlib.Path(p).write_text(re.sub(pat, rep, pathlib.Path(p).read_text(encoding='utf-8')), encoding='utf-8') for p, pat, rep in [('pyproject.toml', r'(?m)^version\s*=\s*\"[^\"]+\"', f'version = \"{ver}\"'), ('llmadb/__init__.py', r'(?m)^__version__\s*=\s*\"[^\"]+\"', f'__version__ = \"{ver}\"')]]"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

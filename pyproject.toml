@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-adb"
-version = "0.1.0"
+version = "0.1.1"
 description = "llm-adb: Token-efficient ADB wrapper for LLM agents"
 readme = "README.md"
 requires-python = ">=3.9"
