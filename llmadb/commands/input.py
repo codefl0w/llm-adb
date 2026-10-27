@@ -10,7 +10,6 @@ from llmadb.device import resolve_device
 from llmadb.errors import (
     E_UNSUPPORTED,
     E_USAGE,
-    EXIT_GENERIC,
     EXIT_USAGE,
     LlmadbError,
 )
@@ -82,6 +81,55 @@ def post_action_output(
     return 0
 
 
+def clear_focused_field(
+    adb: Adb,
+    serial: str,
+    prev_snapshot: Optional[Snapshot] = None,
+) -> None:
+    """Clear text in the currently focused input field.
+
+    Uses Ctrl+A (input keycombination 113 29) + Delete (67) where supported,
+    followed by move-to-end (123) + backspace sequence sized to clear fields
+    longer than 40 characters on legacy devices or custom views.
+    """
+    max_existing_len = 0
+    if prev_snapshot and prev_snapshot.elements:
+        for el in prev_snapshot.elements:
+            if "focused" in el.flags or el.node_type == "input":
+                if len(el.label) > max_existing_len:
+                    max_existing_len = len(el.label)
+
+    del_count = max(100, max_existing_len + 10)
+    del_keys = ["67"] * del_count
+
+    combo_res = adb.run(
+        ["shell", "input", "keycombination", "113", "29"],
+        serial=serial,
+        timeout=5.0,
+    )
+    combo_out = f"{combo_res.text}\n{combo_res.stderr_text}".lower()
+    combo_ok = (
+        combo_res.code == 0
+        and "unknown command" not in combo_out
+        and "error" not in combo_out
+        and "exception" not in combo_out
+    )
+
+    if combo_ok:
+        # First 67 deletes the Ctrl+A selection; 123 + del_keys guarantees clear if view ignored Ctrl+A
+        adb.run(
+            ["shell", "input", "keyevent", "67", "123", *del_keys],
+            serial=serial,
+            timeout=5.0,
+        )
+    else:
+        adb.run(
+            ["shell", "input", "keyevent", "123", *del_keys],
+            serial=serial,
+            timeout=5.0,
+        )
+
+
 def run_type(
     args: List[str],
     adb: Adb,
@@ -120,9 +168,7 @@ def run_type(
 
     # Optional clear
     if clear_field:
-        # Single process call: move to end then 40 backspaces in one go
-        del_keys = ["67"] * 40
-        adb.run(["shell", "input", "keyevent", "123", *del_keys], serial=target_serial, timeout=5.0)
+        clear_focused_field(adb, serial=target_serial, prev_snapshot=prev_snapshot)
 
     if text_to_type:
         if not text_to_type.isascii():
@@ -130,7 +176,7 @@ def run_type(
                 code=E_UNSUPPORTED,
                 message=f"non-ASCII characters in '{text_to_type}' are not supported by Android input text",
                 hint="use ASCII characters only; Android KeyCharacterMap drops or crashes on non-ASCII input",
-                exit_code=EXIT_GENERIC,
+                exit_code=EXIT_USAGE,
             )
         escaped = escape_input_text(text_to_type)
         res = adb.run(["shell", "input", "text", escaped], serial=target_serial)
@@ -141,7 +187,7 @@ def run_type(
                 code=E_UNSUPPORTED,
                 message=f"input text failed: {err_line}",
                 hint="ensure an input field is focused and text contains only standard ASCII characters",
-                exit_code=EXIT_GENERIC,
+                exit_code=EXIT_USAGE,
             )
 
     if press_enter:

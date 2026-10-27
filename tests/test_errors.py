@@ -8,6 +8,7 @@ from llmadb.errors import (
     E_NOT_FOUND,
     E_SECURE_OR_EMPTY,
     E_TIMEOUT,
+    E_UNSUPPORTED,
     E_USAGE,
     EXIT_ADB,
     EXIT_DEVICE_SELECTION,
@@ -38,5 +39,6 @@ def test_exit_codes_mapping():
     assert LlmadbError(E_TIMEOUT, "", "").exit_code == EXIT_TIMEOUT
     assert LlmadbError(E_NOT_FOUND, "", "").exit_code == EXIT_NOT_FOUND
     assert LlmadbError(E_SECURE_OR_EMPTY, "", "").exit_code == EXIT_SECURE_OR_EMPTY
+    assert LlmadbError(E_UNSUPPORTED, "", "").exit_code == EXIT_USAGE
     assert LlmadbError(E_USAGE, "", "").exit_code == EXIT_USAGE
     assert LlmadbError(E_ADB, "", "").exit_code == EXIT_ADB
