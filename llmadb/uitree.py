@@ -476,7 +476,7 @@ def parse_ui_tree(
                     w_label = clean_label(el.attrib.get("text", ""), el.attrib.get("content-desc", ""), full=False)
                     warnings.append(
                         f'! webview "{w_label}" [{wb[0]},{wb[1]}][{wb[2]},{wb[3]}] '
-                        f"DOM not exposed in UI tree; use 'llmadb screen' for coordinate grid"
+                        f"DOM not exposed in UI tree; use 'llmadb screen --ocr' or 'llmadb screen' for coordinate grid"
                     )
     fg_package = max(pkg_counts, key=pkg_counts.get) if pkg_counts else ""
 

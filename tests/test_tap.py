@@ -180,3 +180,35 @@ def test_run_tap_hold_invalid_duration(monkeypatch):
         with pytest.raises(LlmadbError) as exc:
             run_tap(bad_args, MockTapAdb())
         assert exc.value.code == E_USAGE
+
+
+def test_run_tap_multi_count_and_interval(monkeypatch, capsys):
+    snap = make_sample_snapshot()
+    monkeypatch.setattr("llmadb.commands.tap.resolve_device", lambda adb, explicit_serial=None: "emu1")
+    monkeypatch.setattr("llmadb.commands.tap.load_snapshot", lambda serial: snap)
+
+    # 1. Default interval (100ms) with --count 7
+    adb = MockTapAdb()
+    assert run_tap(["1", "--count", "7", "--no-ui"], adb) == 0
+    assert adb.commands[-1][0] == "shell"
+    assert adb.commands[-1][1].count("input tap 55 40") == 7
+    assert "sleep 0.1" in adb.commands[-1][1]
+    assert "(x7, interval 100ms)" in capsys.readouterr().out
+
+    # 2. Custom interval (50ms) and @idx syntax
+    adb = MockTapAdb()
+    assert run_tap(["@2", "--count=3", "--interval=50", "--no-ui"], adb) == 0
+    assert adb.commands[-1][1].count("input tap 155 40") == 3
+    assert "sleep 0.05" in adb.commands[-1][1]
+    assert "(x3, interval 50ms)" in capsys.readouterr().out
+
+    # 3. Zero interval (no sleep)
+    adb = MockTapAdb()
+    assert run_tap(["1", "-n", "2", "--interval", "0", "--no-ui"], adb) == 0
+    assert adb.commands[-1][1] == "input tap 55 40; input tap 55 40"
+
+    # 4. Reject --hold combined with --count > 1
+    with pytest.raises(LlmadbError) as exc:
+        run_tap(["1", "--hold", "--count", "3"], MockTapAdb())
+    assert exc.value.code == E_USAGE
+

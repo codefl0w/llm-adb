@@ -71,8 +71,8 @@ Commands:
 - hardware [--json]: System/display/memory specs.
 - status [--json]: Device battery, Wi-Fi, cellular, bluetooth, NFC, and airplane mode status.
 - ui [--full] [--bounds] [--compressed] [--raw]: Reduced accessibility hierarchy with indexed elements and overlay/webview warnings.
-- screen [--grid N] [--no-grid] [--max-edge 960] [--element N] [--region x1,y1,x2,y2] [--raw] [--no-ui]: Annotated screenshot with 100px device coordinate grid by default.
-- tap <idx|--text X|--id Y|x,y> [--hold [MS]] [--snap N] [--diff] [--no-ui] [--wait-settle]: Tap or long-press target; dumps settled UI.
+- screen [-o PATH] [--ocr] [--grid N] [--no-grid] [--max-edge 960] [--element N] [--region x1,y1,x2,y2] [--raw] [--no-ui]: Annotated screenshot with 100px device coordinate grid by default; --ocr extracts text coordinates (env: LLMADB_SCREENSHOT_OUTDIR).
+- tap <idx|--text X|--id Y|x,y> [--count N] [--interval MS] [--hold [MS]] [--snap N] [--diff] [--no-ui] [--wait-settle]: Tap, multi-tap, or long-press target; dumps settled UI.
 - type "<text>" [--clear] [--enter] [--diff] [--no-ui]: Type ASCII text.
 - swipe <up|down|left|right|x1,y1 x2,y2> [--dist F] [--dur MS] [--diff] [--no-ui]: Swipe gesture.
 - key <home|back|enter|tab|menu|power|volup|voldown|recents|delete|CODE> [--diff] [--no-ui]: Send keyevent.
@@ -106,8 +106,8 @@ Commands:
   hardware              Device specs, display resolution/DPI, memory, storage, root
   status                Connectivity and battery status report
   ui                    Dump reduced UI hierarchy with element indices
-  screen                Capture annotated screenshot or coordinate grid
-  tap                   Tap or long-press (--hold [MS]) element by index, --text, --id, or x,y coordinates
+  screen                Capture annotated screenshot, coordinate grid, or OCR text (--ocr, -o PATH, env: LLMADB_SCREENSHOT_OUTDIR)
+  tap                   Tap, multi-tap (--count N [--interval MS]), or long-press (--hold [MS]) element by index, --text, --id, or x,y coordinates
   type                  Enter text (--clear, --enter)
   swipe                 Swipe up/down/left/right or x1,y1 x2,y2
   key                   Press hardware/navigation key

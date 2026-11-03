@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-11-03
+
+### Added
+- Add screenshot output path routing via `-o` / `--output` and `LLMADB_SCREENSHOT_OUTDIR` env var
+- Add multi-quick-tap support via `llmadb tap --count N [--interval MS]` (default 100ms)
+- Add optional OCR module (`llmadb[ocr]`) and `llmadb screen --ocr` for text-only traversal
+- Add Scenario 2 local agent benchmark results in docs/TEXT_MODELS_TESTS.md
+
+### Fixed
+- Support `@idx` prefix syntax in `llmadb tap` target resolution
+- Fix stale orientation dimensions on `llmadb screen --no-ui` after device rotation
+
+### Changed
+- Update CLI help, README documentation, and non-idle/webview warning hints with `llmadb screen --ocr`, `screen -o`, and `tap --count`
+- Bump version to `0.1.2`
+
 ## 2026-10-27
 
 ### Added

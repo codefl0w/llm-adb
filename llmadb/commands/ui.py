@@ -53,7 +53,7 @@ def enrich_snapshot_with_window_state(
         snapshot.screen_height = win_h
 
     if b"could not get idle state" in raw_bytes and not snapshot.elements:
-        busy_msg = "! ui busy/animating (uiautomator could not get idle state); use 'llmadb screen' to inspect visually"
+        busy_msg = "! ui busy/animating (uiautomator could not get idle state); use 'llmadb screen --ocr' or 'llmadb screen' to inspect"
         if busy_msg not in snapshot.warnings:
             snapshot.warnings.insert(0, busy_msg)
 

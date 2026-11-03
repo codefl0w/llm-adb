@@ -38,9 +38,9 @@ Any subcommand not owned by `llm-adb` passes through transparently to `adb` (`ll
 | | Raw `adb` | `llm-adb` |
 |---|---|---|
 | **Reading the screen** | 15,000–50,000 byte XML dump | 15–40 line indexed tree (~100–250 tokens) |
-| **Custom views, WebViews, games** | Guessing coordinates from full-resolution screenshots | Downscaled screenshot with a 100px device-coordinate grid |
-| **Animations and overlays** | Dump hangs or fails; overlays missing | Fails fast, surfaces `! overlay` warnings |
-| **Actions** | `input tap` returns nothing; extra turns to re-dump | Every action returns the settled UI |
+| **Custom views, WebViews, games** | Guessing coordinates from full-resolution screenshots | Downscaled screenshot with a 100px device-coordinate grid + optional `--ocr` text extraction |
+| **Animations and overlays** | Dump hangs or fails; overlays missing | Fails fast, surfaces `! overlay` warnings, supports `screen --ocr` fallback |
+| **Actions** | `input tap` returns nothing; extra turns to re-dump | Every action (tap, multi-tap `--count`, hold, swipe, type) returns the settled UI |
 | **Everything else** | `adb` | Transparent passthrough to `adb` |
 
 ---
@@ -49,8 +49,8 @@ Any subcommand not owned by `llm-adb` passes through transparently to `adb` (`ll
 
 When controlling an Android device with raw `adb`, LLM agents waste 30–60% of their tokens and turns on boilerplate plumbing:
 - **Massive XML Dumps:** A single `adb shell uiautomator dump` produces 15,000–50,000 bytes of deeply nested XML. `llmadb ui` filters out invisible/zero-area containers, merges redundant single-child wrappers, strips repetitive package prefixes, and emits a 15–40 line indexed accessibility tree (~100–250 tokens).
-- **Blind Coordinate Guessing:** When elements live inside custom Canvas views, games, or unexposed WebViews, models fail to guess pixel coordinates on `1080x2400` screenshots. `llmadb screen` downscales screenshots (default max-edge `960px`) while burning a crisp **100px device-coordinate grid** with interior `+` crosshairs directly onto the image so vision models can read exact device coordinates (`llmadb tap x,y`) in one shot.
-- **Animation & Overlay Blindness:** Standard `uiautomator dump` hangs for up to 30 seconds or fails with `could not get idle state` when a countdown timer, progress spinner, or 60fps animation is active. Furthermore, floating system overlays (incoming calls, heads-up notifications, OxygenOS Dynamic Island / `SeedlingCard` capsules) are omitted when another window holds input focus. `llm-adb` fails fast on non-idle trees and cross-checks `dumpsys window` across Android 7 through Android 17 (`InputWindowHandle` and `InputDispatcher`) to surface `! overlay window="..." @cx,cy` warnings automatically.
+- **Blind Coordinate Guessing:** When elements live inside custom Canvas views, games, or unexposed WebViews, models fail to guess pixel coordinates on `1080x2400` screenshots. `llmadb screen` downscales screenshots (default max-edge `960px`) while burning a crisp **100px device-coordinate grid** with interior `+` crosshairs directly onto the image so vision models can read exact device coordinates (`llmadb tap x,y`) in one shot. Text-only models can pass `llmadb screen --ocr` (`pip install "llm-adb[ocr]"`) to extract on-screen text directly into indexed `idx ocr "label" @cx,cy` coordinates that work seamlessly with `llmadb tap`.
+- **Animation & Overlay Blindness:** Standard `uiautomator dump` hangs for up to 30 seconds or fails with `could not get idle state` when a countdown timer, progress spinner, or 60fps animation is active. Furthermore, floating system overlays (incoming calls, heads-up notifications, OxygenOS Dynamic Island / `SeedlingCard` capsules) are omitted when another window holds input focus. `llm-adb` fails fast on non-idle trees, cross-checks `dumpsys window` across Android 7 through Android 17 (`InputWindowHandle` and `InputDispatcher`) to surface `! overlay window="..." @cx,cy` warnings automatically, and lets agents inspect busy/animating screens via `llmadb screen --ocr`.
 - **Multi-Turn Action Loops:** Raw `adb shell input tap` returns nothing, requiring extra turns to sleep and re-dump the screen. Every `llmadb` action (`tap`, `type`, `swipe`, `key`) automatically waits for the UI to settle and returns the updated UI snapshot in a single tool call.
 
 ---
@@ -80,7 +80,7 @@ When controlling an Android device with raw `adb`, LLM agents waste 30–60% of 
 
 ## Performance & Benchmark Results
 
-`llm-adb` was evaluated in a **Zero-Context ("Clueless") Autonomous Agent Benchmark** on a physical Android 16 device (`1080x2412`, 480 DPI) across frontier multimodal models and a local 35B MoE model. Agents were given zero prior documentation - learning `llm-adb` strictly via `llmadb --help-llm` at runtime - and compared against an unassisted **Raw `adb`** baseline under strict on-device UI rules (no host web scraping or deep-link shortcuts).
+`llm-adb` was evaluated in a **Zero-Context ("Clueless") Autonomous Agent Benchmark** on a physical Android 16 device (`1080x2412`, 480 DPI) across frontier multimodal models and local models (1.7B to 35B). Agents were given zero prior documentation - learning `llm-adb` strictly via `llmadb --help-llm` at runtime - and compared against an unassisted **Raw `adb`** baseline under strict on-device UI rules (no host web scraping or deep-link shortcuts).
 
 ### 1. End-to-End Agent Benchmark Summary
 
@@ -92,7 +92,7 @@ When controlling an Android device with raw `adb`, LLM agents waste 30–60% of 
 | **7-Stage Multi-App Flow (`TC-06`)**<br>*(Quick Settings -> Web Search -> APK Download & Install -> 20s Timer -> Dynamic Island Dismiss)* | **Gemini 3.8 Flash** | **FAILED** (`723.2s` T/O)<br>`364,506` uncached tokens<br>*(Mis-tapped link without grid; hung on Play Protect)* | **PASSED (7/7 stages)**<br>**`441.3s`**<br>**`254,405`** uncached tokens | **Passed vs. Failed**<br>**39.0% faster**<br>**30.2% fewer uncached tokens**<br>**65.3% fewer output tokens** |
 | **7-Stage Multi-App Flow (`TC-06`)** | **Claude Sonnet 5.5** | **PASSED** (`695.4s`)<br>`163,746` uncached tokens<br>*(2 failed `pm install` calls + mis-tap)* | **PASSED (7/7 stages)**<br>**`498.8s`**<br>**`109,023`** uncached tokens | **28.3% faster (`-3m 16s`)**<br>**33.4% fewer uncached tokens**<br>**34.8% fewer input tokens** |
 
-> Each cell is a single trial (`TC-02` was run 1–3 times per model and `TC-06` 1–2 times, against one Raw `adb` baseline run), so treat the percentages as indicative, not statistical. Every run, including the ones not shown here, is logged in [`AGENT_TESTS.md`](docs/AGENT_TESTS.md). Every test can be found at [`TEST_SUITE.md`](docs/TEST_SUITE.md)
+> Each cell is a single trial (`TC-02` was run 1–3 times per model and `TC-06` 1–2 times, against one Raw `adb` baseline run), so treat the percentages as indicative, not statistical. Every run, including the ones not shown here, is logged in [`AGENT_TESTS.md`](docs/AGENT_TESTS.md) and [`TEXT_MODELS_TESTS.md`](docs/TEXT_MODELS_TESTS.md). Every test can be found at [`TEST_SUITE.md`](docs/TEST_SUITE.md).
 
 ### 2. Host CLI Execution Latency
 
@@ -107,6 +107,7 @@ When controlling an Android device with raw `adb`, LLM agents waste 30–60% of 
 | `llmadb log --since-mark` | Timestamp mark lookup + deduplicated PID logcat | `~200–450 ms` |
 | `llmadb list apps` | Package path classification (`user`, `system`, `vendor`, `product`) | `~400–800 ms` |
 | `llmadb screen` | Screencap + 960px downscale + 100px coordinate grid | `~800–1400 ms` |
+| `llmadb screen --ocr` | Screencap + RapidOCR text coordinate extraction + snapshot merge | `~2.5–3.5 s` |
 | `llmadb ui` | Accessibility dump + reduction + overlay check + cache | `~1.0–2.2 s` |
 | `llmadb tap <target>` | Input tap/hold + animation pause + settled UI dump | `~1.2–2.4 s` |
 
@@ -120,6 +121,9 @@ Requires `adb` on your system `PATH` (or set via the `LLMADB_ADB` environment va
 
 ```bash
 pip install llm-adb
+
+# Optional: include RapidOCR (ONNX Runtime) support for `llmadb screen --ocr`
+pip install "llm-adb[ocr]"
 
 # Or install globally in an isolated environment via pipx
 pipx install llm-adb
@@ -136,8 +140,8 @@ git clone https://github.com/codefl0w/llm-adb.git
 cd llm-adb
 pip install .
 
-# Editable install with test dependencies
-pip install -e ".[dev]"
+# Install with optional OCR and test dependencies
+pip install -e ".[ocr,dev]"
 ```
 
 Verify installation:
@@ -172,20 +176,23 @@ llmadb ui
 # 2 text "YouTube" @200,1450
 # 3 text "Chrome" @540,1450
 
-# 3. Tap or long-press by element index, text, resource-id, or coordinates
-llmadb tap 3                              # Tap element #3 (Chrome) and print settled UI
-llmadb tap --text "YouTube" --hold        # Long-press YouTube (default 500ms) to open shortcut menu
-llmadb tap --text "YouTube" --hold 1000   # Long-press YouTube for 1000ms
+# 3. Tap, multi-tap, or long-press by element index, text, resource-id, or coordinates
+llmadb tap 3                                # Tap element #3 (Chrome) and print settled UI
+llmadb tap --text "Build number" --count 8  # Rapidly tap 8 times (default 100ms interval)
+llmadb tap --text "YouTube" --hold          # Long-press YouTube (default 500ms) to open shortcut menu
+llmadb tap --text "YouTube" --hold 1000     # Long-press YouTube for 1000ms
 
 # 4. Type into focused input field
 llmadb type "https://example.com" --clear --enter
 
-# 5. Capture screenshot with 100px device coordinate grid (for WebViews/Canvas/games)
+# 5. Capture screenshot with 100px device coordinate grid or OCR (for WebViews/Canvas/busy screens)
 llmadb screen
+llmadb screen --ocr                         # Extract visual text coordinates for text-only models
+llmadb screen -o ./screenshots              # Save screenshot to custom file or directory
 
 # 6. Toggle or set screen rotation
-llmadb rotate                             # Toggle between portrait (0) and landscape (1)
-llmadb rotate portrait                    # Explicitly lock portrait
+llmadb rotate                               # Toggle between portrait (0) and landscape (1)
+llmadb rotate portrait                      # Explicitly lock portrait
 
 # 7. Clean up cached screenshots and snapshots
 llmadb clear-cache
@@ -259,13 +266,15 @@ screen 1080x2400 app=com.android.settings rot=0 snap=4
 
 #### `llmadb screen [options]`
 Capture a downscaled screenshot with a **100px device-coordinate grid** by default:
+- `-o, --output PATH`: Save screenshot to a specific file or directory path (also configurable globally via the `LLMADB_SCREENSHOT_OUTDIR` environment variable).
+- `--ocr`: Run optical character recognition (requires `pip install "llm-adb[ocr]"`), deduplicate against existing UI elements, merge detected text into the cached snapshot (`snap.json`), and print `idx ocr "label" @cx,cy` lines in device coordinates so `llmadb tap <idx>` and `llmadb tap --text "..."` work on WebViews, Canvas views, and busy/animating screens.
 - `--grid N`: Draw device-pixel coordinate grid every `N` pixels (default: `100`).
 - `--no-grid`: Disable grid overlay and draw numbered element bounding boxes from the UI tree instead.
 - `--max-edge N`: Maximum long-edge resolution in pixels (default: `960`).
-- `--element N`: Crop and 2x-upscale around element index `N` from the latest snapshot.
-- `--region x1,y1,x2,y2`: Crop and 2x-upscale a specific device-coordinate rectangle.
+- `--element N`: Crop around element index `N` from the latest snapshot.
+- `--region x1,y1,x2,y2`: Crop a specific device-coordinate rectangle (when combined with `--ocr`, detected coordinates are automatically mapped back to full-device screen coordinates).
 - `--raw`: Save downscaled screenshot without any annotations or UI dump.
-- `--no-ui`: Skip refreshing the UI snapshot before annotating.
+- `--no-ui`: Skip refreshing the UI snapshot before annotating or running `--ocr`.
 
 ---
 
@@ -273,12 +282,14 @@ Capture a downscaled screenshot with a **100px device-coordinate grid** by defau
 
 All interaction commands wait for the UI to settle after execution and print the updated `ui` output automatically (pass `--no-ui` to suppress, or `--diff` to print only `+` added and `-` removed elements).
 
-#### `llmadb tap <target> [--hold [TIME]] [--snap N] [--diff] [--no-ui] [--wait-settle]`
-Tap or long-press a target element:
-- `llmadb tap 5`: Tap element `#5` from the latest cached snapshot.
+#### `llmadb tap <target> [--count N] [--interval MS] [--hold [TIME]] [--snap N] [--diff] [--no-ui] [--wait-settle]`
+Tap, multi-tap, or long-press a target element:
+- `llmadb tap 5` (or `llmadb tap @5`): Tap element `#5` from the latest cached UI or OCR snapshot.
 - `llmadb tap --text "Sign in"`: Match element by exact text first, then case-insensitive substring.
 - `llmadb tap --id login_button`: Match element by resource ID (`short_id` or full `pkg:id/name`).
 - `llmadb tap 540,1200`: Tap explicit device pixel coordinates (always device space, never scaled image space).
+- `-n, --count N`: Tap the resolved coordinates `N` times in a single batched shell loop (e.g., `llmadb tap --text "Build number" --count 8` to unlock Developer options).
+- `--interval MS`: Delay in milliseconds between multi-taps when `--count N` is used (default: `100` ms).
 - `--hold [TIME]`: Perform a long-press at the target coordinates (`input swipe x y x y <ms>`). `TIME` is optional and specified in milliseconds (defaults to `500` ms when omitted).
 - `--snap N`: Guard against stale state by failing if the cached snapshot ID is not `N`.
 - `--wait-settle`: Poll up to 3s for animations to finish before resolving `--text` or `--id`.
@@ -339,7 +350,7 @@ error: <CODE> <message> | hint: <recovery hint>
 |---|---|---|
 | `0` | - | Success |
 | `1` | `E_GENERIC` | Unexpected internal error |
-| `2` | `E_USAGE`, `E_UNSUPPORTED` | Invalid CLI arguments or unsupported input (e.g., non-ASCII `type`) |
+| `2` | `E_USAGE`, `E_UNSUPPORTED` | Invalid CLI arguments or unsupported input (e.g., non-ASCII `type`, missing `[ocr]` extras) |
 | `3` | `E_NO_DEVICE`, `E_MULTI_DEVICE` | No device connected, or multiple devices connected without `-s` |
 | `4` | `E_DEVICE_STATE` | Device is `unauthorized` or `offline` |
 | `5` | `E_TIMEOUT` | Command or `wait-for` condition timed out |

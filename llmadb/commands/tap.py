@@ -113,9 +113,10 @@ def resolve_tap_target(
             exit_code=EXIT_NOT_FOUND,
         )
 
-    # Case 2: Target by index (numeric string)
-    if target_arg and target_arg.isdigit():
-        target_idx = int(target_arg)
+    # Case 2: Target by index (numeric string or @idx)
+    normalized_idx_arg = target_arg[1:] if target_arg.startswith("@") else target_arg
+    if normalized_idx_arg and normalized_idx_arg.isdigit():
+        target_idx = int(normalized_idx_arg)
         match = next((el for el in snapshot.elements if el.idx == target_idx), None)
         if not match:
             raise LlmadbError(
@@ -207,7 +208,8 @@ def resolve_tap_target(
 
 
 DEFAULT_HOLD_MS = 500
-VALUE_FLAGS = {"--text", "--id", "--snap", "--settle-timeout"}
+DEFAULT_INTERVAL_MS = 100
+VALUE_FLAGS = {"--text", "--id", "--snap", "--settle-timeout", "--count", "-n", "--interval"}
 
 
 def _parse_hold_ms(raw: str) -> int:
@@ -225,6 +227,46 @@ def _parse_hold_ms(raw: str) -> int:
             code=E_USAGE,
             message=f"invalid hold duration: {raw}",
             hint="hold duration must be positive integer in milliseconds (e.g. --hold 500)",
+            exit_code=EXIT_USAGE,
+        )
+    return val
+
+
+def _parse_count(raw: str) -> int:
+    try:
+        val = int(raw)
+    except ValueError:
+        raise LlmadbError(
+            code=E_USAGE,
+            message=f"invalid tap count: {raw}",
+            hint="count must be positive integer (e.g. --count 7)",
+            exit_code=EXIT_USAGE,
+        )
+    if val <= 0:
+        raise LlmadbError(
+            code=E_USAGE,
+            message=f"invalid tap count: {raw}",
+            hint="count must be positive integer (e.g. --count 7)",
+            exit_code=EXIT_USAGE,
+        )
+    return val
+
+
+def _parse_interval_ms(raw: str) -> int:
+    try:
+        val = int(raw)
+    except ValueError:
+        raise LlmadbError(
+            code=E_USAGE,
+            message=f"invalid tap interval: {raw}",
+            hint="interval must be non-negative integer in milliseconds (e.g. --interval 100)",
+            exit_code=EXIT_USAGE,
+        )
+    if val < 0:
+        raise LlmadbError(
+            code=E_USAGE,
+            message=f"invalid tap interval: {raw}",
+            hint="interval must be non-negative integer in milliseconds (e.g. --interval 100)",
             exit_code=EXIT_USAGE,
         )
     return val
@@ -257,6 +299,8 @@ def run_tap(
     id_query: Optional[str] = None
     expected_snap_id: Optional[int] = None
     hold_ms: Optional[int] = None
+    count = 1
+    interval_ms = DEFAULT_INTERVAL_MS
     no_ui = "--no-ui" in args
     diff_mode = "--diff" in args
     wait_settle = "--wait-settle" in args
@@ -285,6 +329,25 @@ def run_tap(
             idx += 2
         elif a.startswith("--id="):
             id_query = a.split("=", 1)[1]
+            idx += 1
+        elif a in ("--count", "-n"):
+            if idx + 1 >= len(args):
+                raise LlmadbError(E_USAGE, f"option {a} requires integer", "specify tap count (e.g. --count 7)", EXIT_USAGE)
+            count = _parse_count(args[idx + 1])
+            idx += 2
+        elif a.startswith("--count="):
+            count = _parse_count(a.split("=", 1)[1])
+            idx += 1
+        elif a.startswith("-n") and len(a) > 2 and a[2:].isdigit():
+            count = _parse_count(a[2:])
+            idx += 1
+        elif a == "--interval":
+            if idx + 1 >= len(args):
+                raise LlmadbError(E_USAGE, "option --interval requires integer", "specify interval in ms (e.g. --interval 100)", EXIT_USAGE)
+            interval_ms = _parse_interval_ms(args[idx + 1])
+            idx += 2
+        elif a.startswith("--interval="):
+            interval_ms = _parse_interval_ms(a.split("=", 1)[1])
             idx += 1
         elif a == "--snap":
             if idx + 1 >= len(args):
@@ -343,9 +406,17 @@ def run_tap(
             raise LlmadbError(
                 code=E_USAGE,
                 message=f"unknown tap option or extra argument '{a}'",
-                hint="usage: llmadb tap <idx|--text X|--id Y|x,y> [--hold [MS]] [--snap N] [--diff] [--no-ui] [--wait-settle]",
+                hint="usage: llmadb tap <idx|--text X|--id Y|x,y> [--count N] [--interval MS] [--hold [MS]] [--snap N] [--diff] [--no-ui] [--wait-settle]",
                 exit_code=EXIT_USAGE,
             )
+
+    if hold_ms is not None and count > 1:
+        raise LlmadbError(
+            code=E_USAGE,
+            message="cannot combine --hold with --count > 1",
+            hint="use either --hold for long-press or --count for multi-tap",
+            exit_code=EXIT_USAGE,
+        )
 
     target_serial = resolve_device(adb, explicit_serial=serial)
     latest_snapshot = load_snapshot(target_serial)
@@ -364,11 +435,26 @@ def run_tap(
             serial=target_serial,
             timeout=cmd_timeout,
         )
+    elif count > 1:
+        tap_cmd = f"input tap {cx} {cy}"
+        if interval_ms > 0:
+            sleep_sec = interval_ms / 1000.0
+            sleep_str = f"{sleep_sec:.3f}".rstrip("0").rstrip(".")
+            script = "; ".join([tap_cmd] + [f"sleep {sleep_str}; {tap_cmd}"] * (count - 1))
+        else:
+            script = "; ".join([tap_cmd] * count)
+        cmd_timeout = max(5.0, count * (interval_ms / 1000.0 + 0.5) + 5.0)
+        adb.run(["shell", script], serial=target_serial, timeout=cmd_timeout)
     else:
         adb.run(["shell", "input", "tap", str(cx), str(cy)], serial=target_serial, timeout=5.0)
 
     if no_ui:
-        suffix = f" (hold {hold_ms}ms)" if hold_ms is not None else ""
+        if hold_ms is not None:
+            suffix = f" (hold {hold_ms}ms)"
+        elif count > 1:
+            suffix = f" (x{count}, interval {interval_ms}ms)"
+        else:
+            suffix = ""
         sys.stdout.write(f"tapped {desc} @{cx},{cy}{suffix}\n")
         sys.stdout.flush()
         return 0
