@@ -132,13 +132,24 @@ def get_ui_snapshot(
     raw_bytes = dump_hierarchy_bytes(adb, serial=serial, compressed=compressed)
     snap_id = get_next_snapshot_id(serial or "default")
     snapshot = parse_ui_tree(raw_bytes, snapshot_id=snap_id, full_labels=full_labels)
+
+    # Cold-start Flutter/custom AccessibilityBridge wakeup retry:
+    # First uiautomator dump wakes AccessibilityBridge asynchronously; retry once after 250ms if tree was empty.
+    if not snapshot.elements and not snapshot.warnings and b"could not get idle state" not in raw_bytes:
+        time.sleep(0.25)
+        retry_bytes = dump_hierarchy_bytes(adb, serial=serial, compressed=compressed, retries=1)
+        retry_snap = parse_ui_tree(retry_bytes, snapshot_id=snap_id, full_labels=full_labels)
+        if retry_snap.elements or retry_snap.warnings:
+            raw_bytes = retry_bytes
+            snapshot = retry_snap
+
     enrich_snapshot_with_window_state(adb, serial=serial, snapshot=snapshot, raw_bytes=raw_bytes)
 
     if not snapshot.elements and not snapshot.warnings:
         raise LlmadbError(
             code=E_SECURE_OR_EMPTY,
             message="screen is secure or empty",
-            hint="FLAG_SECURE screen or non-accessible UI; use `llmadb screen`",
+            hint="FLAG_SECURE screen or non-accessible UI; use `llmadb screen --ocr` or `llmadb screen`",
             exit_code=EXIT_SECURE_OR_EMPTY,
         )
 

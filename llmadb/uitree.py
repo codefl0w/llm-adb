@@ -36,6 +36,7 @@ class Element:
     flags: List[str] = field(default_factory=list)
     raw_class: str = ""
     package: str = ""
+    hint: str = ""
 
     def format_row(self, full_bounds: bool = False) -> str:
         loc_str = (
@@ -113,7 +114,9 @@ INPUT_WIN_RE = re.compile(
 )
 RECT_PAIR_RE = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
 FOCUS_WIN_RE = re.compile(r"mCurrentFocus=Window\{([0-9a-f]+)?\s*[^\s}]*\s+([^\s}]+)\}")
-CUR_SIZE_RE = re.compile(r"(?:cur|init)=(\d+)x(\d+)")
+CUR_ONLY_RE = re.compile(r"\bcur=(\d+)x(\d+)")
+BASE_ONLY_RE = re.compile(r"\bbase=(\d+)x(\d+)")
+INIT_ONLY_RE = re.compile(r"\binit=(\d+)x(\d+)")
 
 IGNORED_SYSTEM_WINDOWS = {
     "NavigationBar",
@@ -144,12 +147,24 @@ def parse_window_state(dumpsys_text: str) -> Tuple[str, int, int, List[str]]:
     focus_pkg = ""
     screen_w = 0
     screen_h = 0
+    has_authoritative_size = False
+
+    # Prefer cur= (active override/effective resolution), then base=, then init= (physical)
+    m_cur = CUR_ONLY_RE.search(dumpsys_text)
+    if m_cur:
+        screen_w, screen_h = int(m_cur.group(1)), int(m_cur.group(2))
+        has_authoritative_size = True
+    else:
+        m_base = BASE_ONLY_RE.search(dumpsys_text)
+        if m_base:
+            screen_w, screen_h = int(m_base.group(1)), int(m_base.group(2))
+            has_authoritative_size = True
+        else:
+            m_init = INIT_ONLY_RE.search(dumpsys_text)
+            if m_init:
+                screen_w, screen_h = int(m_init.group(1)), int(m_init.group(2))
 
     for line in dumpsys_text.splitlines():
-        if screen_w == 0:
-            ms = CUR_SIZE_RE.search(line)
-            if ms:
-                screen_w, screen_h = int(ms.group(1)), int(ms.group(2))
         if not focus_win and "mCurrentFocus=" in line:
             m = FOCUS_WIN_RE.search(line)
             if m:
@@ -183,10 +198,10 @@ def parse_window_state(dumpsys_text: str) -> Tuple[str, int, int, List[str]]:
 
             if win_name == focus_win:
                 focus_layer = layer
-                if fx2 > fx1 and fy2 > fy1:
+                if not has_authoritative_size and fx2 > fx1 and fy2 > fy1:
                     screen_w = max(screen_w, fx2)
                     screen_h = max(screen_h, fy2)
-            elif visible and fx2 > fx1 and fy2 > fy1 and "/" in win_name:
+            elif not has_authoritative_size and visible and fx2 > fx1 and fy2 > fy1 and "/" in win_name:
                 screen_w = max(screen_w, fx2)
                 screen_h = max(screen_h, fy2)
 
@@ -214,7 +229,7 @@ def parse_window_state(dumpsys_text: str) -> Tuple[str, int, int, List[str]]:
             )
             if is_focus and focus_input_idx is None:
                 focus_input_idx = idx
-                if fx2 > fx1 and fy2 > fy1:
+                if not has_authoritative_size and fx2 > fx1 and fy2 > fy1:
                     screen_w = max(screen_w, fx2)
                     screen_h = max(screen_h, fy2)
 
@@ -232,7 +247,7 @@ def parse_window_state(dumpsys_text: str) -> Tuple[str, int, int, List[str]]:
         short_name = win_name.split("/")[-1].rsplit(".", 1)[-1]
         if short_name in IGNORED_SYSTEM_WINDOWS or win_name in IGNORED_SYSTEM_WINDOWS:
             continue
-        if short_name == "StatusBar" and (y2 - y1) <= 80:
+        if short_name == "StatusBar" and min(x2 - x1, y2 - y1) <= 80:
             continue
 
         is_overlay = (focus_layer > 0 and layer > focus_layer) or any(
@@ -271,7 +286,7 @@ def parse_window_state(dumpsys_text: str) -> Tuple[str, int, int, List[str]]:
             short_name = win_name.split("/")[-1].rsplit(".", 1)[-1]
             if short_name in IGNORED_SYSTEM_WINDOWS or win_name in IGNORED_SYSTEM_WINDOWS:
                 continue
-            if short_name == "StatusBar" and (y2 - y1) <= 135:
+            if short_name == "StatusBar" and min(x2 - x1, y2 - y1) <= 135:
                 continue
             if short_name == "NotificationShade" and focus_pkg == "com.android.systemui":
                 continue
@@ -310,6 +325,8 @@ def map_class_to_type(class_name: str) -> str:
         return "switch"
     if name == "RadioButton":
         return "radio"
+    if name == "SeekBar":
+        return "slider"
     if name == "ImageView":
         return "image"
     if name == "ProgressBar":
@@ -338,9 +355,9 @@ BIDI_CHARS = dict.fromkeys(
 )
 
 
-def clean_label(text: str, content_desc: str, full: bool = False) -> str:
-    """Pick label from text or content-desc, strip BiDi markers, and truncate if needed."""
-    raw = text.strip() if text.strip() else content_desc.strip()
+def clean_label(text: str, content_desc: str, full: bool = False, hint: str = "") -> str:
+    """Pick label from text, content-desc, or hint, strip BiDi markers, and truncate if needed."""
+    raw = text.strip() if text.strip() else (content_desc.strip() if content_desc.strip() else hint.strip())
     raw = raw.translate(BIDI_CHARS)
     raw = " ".join(raw.split())
     if not full and len(raw) > 120:
@@ -357,6 +374,7 @@ class RawNode:
         self.bounds = parse_bounds(element.attrib.get("bounds", ""))
         self.text = element.attrib.get("text", "")
         self.desc = element.attrib.get("content-desc", "")
+        self.hint = element.attrib.get("hint", "")
         self.class_name = element.attrib.get("class", "")
         self.pkg = element.attrib.get("package", "")
         self.resource_id = element.attrib.get("resource-id", "")
@@ -369,6 +387,7 @@ class RawNode:
         self.focused = element.attrib.get("focused", "false") == "true"
         self.password = element.attrib.get("password", "false") == "true"
         self.visible = element.attrib.get("visible-to-user", "true") != "false"
+        self.naf = element.attrib.get("NAF", "false") == "true"
 
 
 def build_raw_tree(xml_root: ET.Element) -> Tuple[Optional[RawNode], int, int, int]:
@@ -414,14 +433,16 @@ def should_include_node(node: RawNode, screen_w: int, screen_h: int) -> bool:
         return False
 
     # Inclusion checks
-    has_text = bool(node.text.strip() or node.desc.strip())
+    has_text = bool(node.text.strip() or node.desc.strip() or node.hint.strip())
     is_interactive = (
         node.clickable or node.long_clickable or node.checkable or node.scrollable
     )
     class_leaf = node.class_name.rsplit(".", 1)[-1]
     is_interactive_class = class_leaf in INTERACTIVE_CLASSES
+    # Include Flutter Semantics(identifier: ...) / custom bare semantic IDs without inflating native :id/ containers
+    has_semantic_id = bool(node.resource_id.strip()) and ":id/" not in node.resource_id
 
-    return has_text or is_interactive or is_interactive_class
+    return has_text or is_interactive or is_interactive_class or has_semantic_id
 
 
 def parse_ui_tree(
@@ -499,6 +520,8 @@ def parse_ui_tree(
                     node.text = child.text
                 if not node.desc and child.desc:
                     node.desc = child.desc
+                if not node.hint and child.hint:
+                    node.hint = child.hint
                 if not node.resource_id and child.resource_id:
                     node.resource_id = child.resource_id
                 if not node.pkg and child.pkg:
@@ -512,6 +535,7 @@ def parse_ui_tree(
                 node.scrollable = node.scrollable or child.scrollable
                 node.focused = node.focused or child.focused
                 node.password = node.password or child.password
+                node.naf = node.naf or child.naf
                 node.children = child.children
 
         # Rule 2: Clickable container inheriting descendant text
@@ -563,7 +587,9 @@ def parse_ui_tree(
     for node in included_nodes:
         bounds = node.bounds
         assert bounds is not None
-        label = clean_label(node.text, node.desc, full=full_labels)
+        cleaned_hint = clean_label(node.hint, "", full=full_labels) if node.hint.strip() else ""
+        label_from_hint = not node.text.strip() and not node.desc.strip() and bool(cleaned_hint)
+        label = clean_label(node.text, node.desc, full=full_labels, hint=node.hint)
         key = (bounds, label)
         if key in seen_keys:
             continue
@@ -595,6 +621,8 @@ def parse_ui_tree(
             flags.append("focused")
         if node.password:
             flags.append("password")
+        if label_from_hint:
+            flags.append("hint")
         if node.scrollable and node_type != "scroll":
             flags.append("scroll")
         if node_type in INTERACTIVE_TYPES and not node.clickable:
@@ -612,9 +640,66 @@ def parse_ui_tree(
                 flags=flags,
                 raw_class=node.class_name,
                 package=node.pkg,
+                hint=cleaned_hint,
             )
         )
         idx += 1
+
+    # Detect large blank leaf android.view.View regions (Flutter CustomPaint / canvas / ExcludeSemantics)
+    screen_area = max(1, screen_w * screen_h)
+    min_canvas_w = max(160, int(screen_w * 0.25))
+    min_canvas_h = max(120, int(screen_h * 0.10))
+    labeled_centers = [el.center for el in elements if el.label]
+    blank_regions: List[Tuple[int, int, int, int]] = []
+    for el_xml in root_et.iter("node"):
+        if el_xml.find("node") is not None:
+            continue
+        if el_xml.attrib.get("class", "") != "android.view.View":
+            continue
+        if el_xml.attrib.get("visible-to-user", "true") == "false":
+            continue
+        if (
+            el_xml.attrib.get("text", "").strip()
+            or el_xml.attrib.get("content-desc", "").strip()
+            or el_xml.attrib.get("hint", "").strip()
+            or el_xml.attrib.get("resource-id", "").strip()
+        ):
+            continue
+        rb = parse_bounds(el_xml.attrib.get("bounds", ""))
+        if not rb:
+            continue
+        rw, rh = rb[2] - rb[0], rb[3] - rb[1]
+        if rw < min_canvas_w or rh < min_canvas_h:
+            continue
+        if (rw * rh) >= int(screen_area * 0.85):
+            continue
+        # Exclude regions that already contain labeled elements inside them
+        if any(rb[0] <= lx <= rb[2] and rb[1] <= ly <= rb[3] for lx, ly in labeled_centers):
+            continue
+        if rb not in blank_regions:
+            blank_regions.append(rb)
+            if len(blank_regions) >= 3:
+                break
+
+    for rx1, ry1, rx2, ry2 in blank_regions:
+        warnings.append(
+            f"! unlabeled region [{rx1},{ry1}][{rx2},{ry2}] "
+            f"(possible CustomPaint/canvas/ExcludeSemantics; use 'llmadb screen --ocr' or 'llmadb screen')"
+        )
+
+    # Surface hint when multiple unlabeled interactive buttons/icon controls exist (e.g. Flutter IconButton without tooltip)
+    unlabeled_controls = [
+        el for el in elements
+        if not el.label and not el.short_id and el.node_type in ("button", "view", "image")
+        and (el.bounds[2] - el.bounds[0]) < min_canvas_w
+    ]
+    if len(unlabeled_controls) >= 2:
+        idxs_preview = ", ".join(str(el.idx) for el in unlabeled_controls[:6])
+        more = "..." if len(unlabeled_controls) > 6 else ""
+        warnings.append(
+            f"! {len(unlabeled_controls)} unlabeled controls (#{idxs_preview}{more}); "
+            f"use 'llmadb screen --no-grid' to identify visually and tap by index"
+        )
 
     return Snapshot(
         id=snapshot_id,

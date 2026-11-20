@@ -92,16 +92,27 @@ def run_waitfor(
 
         if last_snap and last_snap.elements:
             if text_target:
-                # Check if text target exists
+                # Check if text target exists (label, whitespace-collapsed OCR, or hint)
                 q = text_target.lower()
-                if any(q in el.label.lower() for el in last_snap.elements):
+                compact_q = "".join(q.split())
+                if any(
+                    q in el.label.lower()
+                    or (len(compact_q) >= 3 and compact_q in "".join(el.label.lower().split()))
+                    or (el.hint and q in el.hint.lower())
+                    for el in last_snap.elements
+                ):
                     output = last_snap.format_tree()
                     sys.stdout.write(output + "\n")
                     sys.stdout.flush()
                     return 0
             elif id_target:
-                # Check if id target exists
-                if any(el.short_id == id_target or el.resource_id.endswith(f"/{id_target}") for el in last_snap.elements):
+                # Check if id target exists (supports Flutter Semantics(identifier:) without :id/)
+                if any(
+                    el.short_id == id_target
+                    or el.resource_id == id_target
+                    or el.resource_id.endswith(f"/{id_target}")
+                    for el in last_snap.elements
+                ):
                     output = last_snap.format_tree()
                     sys.stdout.write(output + "\n")
                     sys.stdout.flush()

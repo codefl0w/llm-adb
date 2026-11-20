@@ -316,12 +316,13 @@ def run_screen(
         image.save(out_path, format="PNG")
         prune_screens(target_serial)
 
-    # Print summary output: path=<file> size=WxH device=WxH scale=<f> snap=<n> elements=<n>
+    # Print summary output: path=<file> size=WxH device=WxH [region=x1,y1,x2,y2] scale=<f> snap=<n> elements=<n>
     elem_count = len(snapshot.elements) if snapshot else 0
     scale_str = f"{downscale_factor:.2f}" if downscale_factor != 1.0 else "1.0"
+    region_str = f" region={region[0]},{region[1]},{region[2]},{region[3]}" if region else ""
     ocr_str = f" ocr={len(ocr_elements)}" if ocr_mode else ""
     out_Lines: List[str] = [
-        f"path={out_path} size={final_w}x{final_h} device={tree_w}x{tree_h} "
+        f"path={out_path} size={final_w}x{final_h} device={full_tree_w}x{full_tree_h}{region_str} "
         f"scale={scale_str} snap={snap_id} elements={elem_count}{ocr_str}"
     ]
     if ocr_mode:

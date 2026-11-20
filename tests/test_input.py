@@ -87,22 +87,25 @@ def test_run_type_clear_over_40_chars(monkeypatch):
     monkeypatch.setattr("llmadb.commands.input.load_snapshot", lambda serial: snap)
 
     calls = []
+    timeouts = []
 
     class RecordingAdb:
         def run(self, args, **kwargs):
             calls.append(args)
+            timeouts.append(kwargs.get("timeout"))
             return Result(stdout=b"", stderr=b"", code=0)
 
     rc = run_type(["--clear", "newtext", "--no-ui"], RecordingAdb())
     assert rc == 0
-    # 1) Ctrl+A select-all via keycombination 113 29
-    assert calls[0] == ["shell", "input", "keycombination", "113", "29"]
-    # 2) Delete selection (67) + move-to-end (123) + >= len(long_existing_text) backspaces
-    assert calls[1][:4] == ["shell", "input", "keyevent", "67"]
-    assert calls[1][4] == "123"
-    assert calls[1][5:].count("67") >= len(long_existing_text)
-    # 3) Type new text
-    assert calls[2] == ["shell", "input", "text", "newtext"]
+    # 1) Move-to-end (123) + chunked backspaces (>= len(long_existing_text) + 15) in one shell command
+    assert calls[0][0] == "shell"
+    script = calls[0][1]
+    assert script.startswith("input keyevent 123; input keyevent 67")
+    assert "keycombination" not in script
+    assert script.replace(";", " ").split().count("67") >= len(long_existing_text)
+    assert timeouts[0] >= 12.0
+    # 2) Type new text
+    assert calls[1] == ["shell", "input", "text", "newtext"]
 
 
 def test_run_type_clear_legacy_fallback_over_40_chars(monkeypatch):
@@ -113,18 +116,20 @@ def test_run_type_clear_legacy_fallback_over_40_chars(monkeypatch):
     monkeypatch.setattr("llmadb.commands.input.load_snapshot", lambda serial: None)
 
     calls = []
+    timeouts = []
 
     class LegacyAdb:
         def run(self, args, **kwargs):
             calls.append(args)
-            if "keycombination" in args:
-                return Result(stdout=b"Error: Unknown command: keycombination\n", stderr=b"", code=1)
+            timeouts.append(kwargs.get("timeout"))
             return Result(stdout=b"", stderr=b"", code=0)
 
     rc = run_type(["--clear", "fallback", "--no-ui"], LegacyAdb())
     assert rc == 0
-    assert calls[0] == ["shell", "input", "keycombination", "113", "29"]
-    # Legacy fallback uses move-to-end (123) + 100 backspaces (>40 chars)
-    assert calls[1][:4] == ["shell", "input", "keyevent", "123"]
-    assert calls[1][4:].count("67") >= 100
-    assert calls[2] == ["shell", "input", "text", "fallback"]
+    assert calls[0][0] == "shell"
+    script = calls[0][1]
+    assert script.startswith("input keyevent 123; input keyevent 67")
+    # Default clear sends >= 100 chunked backspaces (>40 chars) with scaled timeout for API 24
+    assert script.replace(";", " ").split().count("67") >= 100
+    assert timeouts[0] >= 12.0
+    assert calls[1] == ["shell", "input", "text", "fallback"]

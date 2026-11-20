@@ -78,6 +78,7 @@ def save_snapshot(serial: str, snapshot: Snapshot) -> None:
         "app_package": snapshot.app_package,
         "rotation": snapshot.rotation,
         "content_hash": compute_content_hash(snapshot.raw_xml),
+        "warnings": list(snapshot.warnings),
         "elements": [
             {
                 "idx": el.idx,
@@ -90,6 +91,7 @@ def save_snapshot(serial: str, snapshot: Snapshot) -> None:
                 "flags": el.flags,
                 "raw_class": el.raw_class,
                 "package": el.package,
+                "hint": el.hint,
             }
             for el in snapshot.elements
         ],
@@ -122,6 +124,7 @@ def load_snapshot(serial: str) -> Optional[Snapshot]:
                 flags=d.get("flags", []),
                 raw_class=d.get("raw_class", ""),
                 package=d.get("package", ""),
+                hint=d.get("hint", ""),
             )
             for d in data.get("elements", [])
         ]
@@ -133,9 +136,19 @@ def load_snapshot(serial: str) -> Optional[Snapshot]:
             rotation=data.get("rotation", 0),
             elements=elements,
             raw_xml=b"",
+            warnings=data.get("warnings", []),
         )
     except Exception:
         return None
+
+
+def invalidate_snapshot(serial: str) -> None:
+    """Remove cached snap.json for a device while preserving monotonic last_snap_id."""
+    snap_file = _device_cache_path(serial) / "snap.json"
+    try:
+        snap_file.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def prune_screens(serial: str, max_age_seconds: float = 3600.0, max_files: int = 20) -> None:

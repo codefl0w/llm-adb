@@ -31,6 +31,7 @@ def settle_ui(
     timeout: float = 2.0,
     interval: float = 0.25,
     wait_settle: bool = False,
+    prev_snapshot: Optional[Snapshot] = None,
 ) -> Snapshot:
     """Wait for UI to settle. Fast by default (150ms animation pause + single dump)."""
     time.sleep(0.15)
@@ -51,6 +52,27 @@ def settle_ui(
     snap_id = get_next_snapshot_id(serial)
     snapshot = parse_ui_tree(raw_bytes, snapshot_id=snap_id)
     enrich_snapshot_with_window_state(adb, serial=serial, snapshot=snapshot, raw_bytes=raw_bytes)
+
+    # Preserve prior OCR elements if screen remained busy/animating on the same app and orientation
+    if (
+        not snapshot.elements
+        and b"could not get idle state" in raw_bytes
+        and prev_snapshot is not None
+    ):
+        prev_ocr = [el for el in prev_snapshot.elements if el.node_type == "ocr"]
+        same_app = (
+            not prev_snapshot.app_package
+            or not snapshot.app_package
+            or prev_snapshot.app_package == snapshot.app_package
+        )
+        same_orient = prev_snapshot.rotation == snapshot.rotation
+        if prev_ocr and same_app and same_orient:
+            snapshot.elements = list(prev_ocr)
+            snapshot.warnings.append(
+                f"! retained {len(prev_ocr)} OCR elements from snap={prev_snapshot.id} "
+                f"(re-run 'llmadb screen --ocr' if layout changed)"
+            )
+
     save_snapshot(serial, snapshot)
     return snapshot
 
@@ -119,10 +141,14 @@ def resolve_tap_target(
         target_idx = int(normalized_idx_arg)
         match = next((el for el in snapshot.elements if el.idx == target_idx), None)
         if not match:
+            if not snapshot.elements and any("busy/animating" in w for w in snapshot.warnings):
+                hint = "screen was busy/animating; run `llmadb screen --ocr` to extract tappable elements"
+            else:
+                hint = "run `llmadb ui` to inspect available indices"
             raise LlmadbError(
                 code=E_NOT_FOUND,
                 message=f"element index #{target_idx} not found in snap={snapshot.id}",
-                hint="run `llmadb ui` to inspect available indices",
+                hint=hint,
                 exit_code=EXIT_NOT_FOUND,
             )
         tx, ty = _safe_element_tap_point(match, snapshot)
@@ -136,7 +162,12 @@ def resolve_tap_target(
         ]
         if not matches:
             available_ids = [el.short_id for el in snapshot.elements if el.short_id]
-            hint = f"available ids: {', '.join(available_ids[:5])}" if available_ids else "run `llmadb ui`"
+            if available_ids:
+                hint = f"available ids: {', '.join(available_ids[:5])}"
+            elif not snapshot.elements and any("busy/animating" in w for w in snapshot.warnings):
+                hint = "screen was busy/animating; run `llmadb screen --ocr` to extract tappable elements"
+            else:
+                hint = "run `llmadb ui`"
             raise LlmadbError(
                 code=E_NOT_FOUND,
                 message=f"no element with id '{id_query}' found",
@@ -157,7 +188,7 @@ def resolve_tap_target(
 
     # Case 4: Target by --text
     if text_query:
-        # Exact match first
+        # Stage 1: Exact match first
         exact_matches = [el for el in snapshot.elements if el.label == text_query]
         if len(exact_matches) == 1:
             m = exact_matches[0]
@@ -172,7 +203,7 @@ def resolve_tap_target(
                 exit_code=EXIT_NOT_FOUND,
             )
 
-        # Case-insensitive substring match
+        # Stage 2: Case-insensitive substring match
         query_lower = text_query.lower()
         sub_matches = [el for el in snapshot.elements if query_lower in el.label.lower()]
         if len(sub_matches) == 1:
@@ -188,10 +219,50 @@ def resolve_tap_target(
                 exit_code=EXIT_NOT_FOUND,
             )
 
-        # No match found, find closest
+        # Stage 3: Whitespace-collapsed substring match (handles OCR space drops like "CLAIMREWARD")
+        compact_query = "".join(query_lower.split())
+        if len(compact_query) >= 3:
+            compact_matches = [
+                el for el in snapshot.elements
+                if compact_query in "".join(el.label.lower().split())
+            ]
+            if len(compact_matches) == 1:
+                m = compact_matches[0]
+                tx, ty = _safe_element_tap_point(m, snapshot)
+                return tx, ty, f"#{m.idx} \"{m.label}\""
+            if len(compact_matches) > 1:
+                candidates = [f"#{m.idx} \"{m.label}\"" for m in compact_matches]
+                raise LlmadbError(
+                    code=E_AMBIGUOUS,
+                    message=f"text query '{text_query}' matches {len(compact_matches)} elements: {', '.join(candidates)}",
+                    hint="target specific element index (e.g. tap 4)",
+                    exit_code=EXIT_NOT_FOUND,
+                )
+
+        # Stage 4: Match against element hint attribute (e.g. prefilled Flutter TextField labelText/hintText)
+        hint_matches = [el for el in snapshot.elements if el.hint and query_lower in el.hint.lower()]
+        if len(hint_matches) == 1:
+            m = hint_matches[0]
+            tx, ty = _safe_element_tap_point(m, snapshot)
+            return tx, ty, f"#{m.idx} \"{m.hint}\""
+        if len(hint_matches) > 1:
+            candidates = [f"#{m.idx} \"{m.hint}\"" for m in hint_matches]
+            raise LlmadbError(
+                code=E_AMBIGUOUS,
+                message=f"text query '{text_query}' matches {len(hint_matches)} hint fields: {', '.join(candidates)}",
+                hint="target specific element index (e.g. tap 4)",
+                exit_code=EXIT_NOT_FOUND,
+            )
+
+        # No match found, find closest or warn if busy screen produced empty snapshot
         labels = [el.label for el in snapshot.elements if el.label]
         closest = difflib.get_close_matches(text_query, labels, n=3, cutoff=0.3)
-        hint = f"closest labels: {', '.join(repr(c) for c in closest)}" if closest else "run `llmadb ui` to inspect labels"
+        if closest:
+            hint = f"closest labels: {', '.join(repr(c) for c in closest)}"
+        elif not snapshot.elements and any("busy/animating" in w for w in snapshot.warnings):
+            hint = "screen was busy/animating; run `llmadb screen --ocr` to extract tappable text"
+        else:
+            hint = "run `llmadb ui` to inspect labels"
         raise LlmadbError(
             code=E_NOT_FOUND,
             message=f"element with text '{text_query}' not found",
@@ -460,7 +531,13 @@ def run_tap(
         return 0
 
     # Wait for UI to settle and print updated UI
-    new_snapshot = settle_ui(adb, serial=target_serial, timeout=settle_timeout, wait_settle=wait_settle)
+    new_snapshot = settle_ui(
+        adb,
+        serial=target_serial,
+        timeout=settle_timeout,
+        wait_settle=wait_settle,
+        prev_snapshot=latest_snapshot,
+    )
     if diff_mode:
         output = format_snapshot_diff(latest_snapshot, new_snapshot)
     else:

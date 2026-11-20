@@ -62,7 +62,13 @@ def post_action_output(
             sys.stdout.flush()
         return 0
 
-    new_snapshot = settle_ui(adb, serial=serial, timeout=settle_timeout, wait_settle=wait_settle)
+    new_snapshot = settle_ui(
+        adb,
+        serial=serial,
+        timeout=settle_timeout,
+        wait_settle=wait_settle,
+        prev_snapshot=prev_snapshot,
+    )
     if diff_mode:
         output = format_snapshot_diff(prev_snapshot, new_snapshot)
     else:
@@ -86,48 +92,33 @@ def clear_focused_field(
     serial: str,
     prev_snapshot: Optional[Snapshot] = None,
 ) -> None:
-    """Clear text in the currently focused input field.
+    """Clear text in the currently focused input field across Native, Compose, and Flutter.
 
-    Uses Ctrl+A (input keycombination 113 29) + Delete (67) where supported,
-    followed by move-to-end (123) + backspace sequence sized to clear fields
-    longer than 40 characters on legacy devices or custom views.
+    Moves cursor to end (KEYCODE_MOVE_END=123) and dispatches KEYCODE_DEL (67) in
+    chunked batches (35 keys per `input keyevent` call) with a scaled timeout.
+    Avoids `input keycombination 113 29` because Android's synthetic Ctrl+A modifier
+    corrupts Flutter's HardwareKeyboard state and causes subsequent keyevents to drop.
     """
     max_existing_len = 0
     if prev_snapshot and prev_snapshot.elements:
         for el in prev_snapshot.elements:
+            if "hint" in el.flags:
+                continue
             if "focused" in el.flags or el.node_type == "input":
                 if len(el.label) > max_existing_len:
                     max_existing_len = len(el.label)
 
-    del_count = max(100, max_existing_len + 10)
-    del_keys = ["67"] * del_count
+    del_count = max(100, max_existing_len + 15)
+    chunk_size = 35
+    cmds: List[str] = ["input keyevent 123"]
+    remaining = del_count
+    while remaining > 0:
+        batch = min(chunk_size, remaining)
+        cmds.append("input keyevent " + " ".join(["67"] * batch))
+        remaining -= batch
 
-    combo_res = adb.run(
-        ["shell", "input", "keycombination", "113", "29"],
-        serial=serial,
-        timeout=5.0,
-    )
-    combo_out = f"{combo_res.text}\n{combo_res.stderr_text}".lower()
-    combo_ok = (
-        combo_res.code == 0
-        and "unknown command" not in combo_out
-        and "error" not in combo_out
-        and "exception" not in combo_out
-    )
-
-    if combo_ok:
-        # First 67 deletes the Ctrl+A selection; 123 + del_keys guarantees clear if view ignored Ctrl+A
-        adb.run(
-            ["shell", "input", "keyevent", "67", "123", *del_keys],
-            serial=serial,
-            timeout=5.0,
-        )
-    else:
-        adb.run(
-            ["shell", "input", "keyevent", "123", *del_keys],
-            serial=serial,
-            timeout=5.0,
-        )
+    clear_timeout = max(12.0, del_count * 0.08 + 5.0)
+    adb.run(["shell", "; ".join(cmds)], serial=serial, timeout=clear_timeout)
 
 
 def run_type(

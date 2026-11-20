@@ -4,6 +4,7 @@ import sys
 from typing import List, Optional, Tuple
 
 from llmadb.adb import Adb
+from llmadb.cache import invalidate_snapshot
 from llmadb.commands.current import parse_rotation
 from llmadb.device import resolve_device
 from llmadb.errors import E_USAGE, EXIT_USAGE, LlmadbError
@@ -111,4 +112,5 @@ def run_rotate(
         ],
         serial=target_serial,
     )
+    invalidate_snapshot(target_serial)
     return _emit(target, False)
